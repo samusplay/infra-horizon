@@ -1,0 +1,111 @@
+services:
+  # 1. Base de datos para Identity API (C# .NET)
+  identity-db:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: horizon-identity-db
+    environment:
+      - ACCEPT_EULA=Y
+      - MSSQL_SA_PASSWORD=Horizon_Auth_2026!
+    ports:
+      - "1433:1433"
+    volumes:
+      - identity_data:/var/opt/mssql
+    networks:
+      - horizon-net
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -Q 'SELECT 1' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # 2. Base de datos para Events API (NestJS)
+  events-db:
+    image: postgres:15-alpine
+    container_name: horizon-events-db
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=horizon_events
+    ports:
+      - "5432:5432"
+    volumes:
+      - events_data:/var/lib/postgresql/data
+    networks:
+      - horizon-net
+
+  # 3. Caché y Pub/Sub para Signal Engine (Go)
+  signal-cache:
+    image: redis:7-alpine
+    container_name: horizon-signal-cache
+    ports:
+      - "6379:6379"
+    networks:
+      - horizon-net
+
+  # 4. Servidor de Video (RTMP/HLS)
+  media-server:
+    image: tiangolo/nginx-rtmp
+    container_name: horizon-media-server
+    ports:
+      - "1935:1935"
+      - "8080:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - horizon-net
+
+  # 5. Identity API (C# .NET) — hot-reload contra ../Horizon.Identity
+  identity-api:
+    build:
+      context: ../Horizon.Identity
+      dockerfile: Dockerfile.dev
+    container_name: horizon-identity-api
+    ports:
+      - "5005:8080"
+    volumes:
+      - ../Horizon.Identity:/src
+      - /src/bin
+      - /src/obj
+      - nuget-cache:/root/.nuget/packages
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - DOTNET_USE_POLLING_FILE_WATCHER=1
+      - ConnectionStrings__DefaultConnection=Server=identity-db,1433;Database=db_auth;User Id=sa;Password=Horizon_Auth_2026!;TrustServerCertificate=True;
+    depends_on:
+      identity-db:
+        condition: service_healthy
+    networks:
+      - horizon-net
+
+  # 6. API Gateway (YARP) — enruta hacia identity-api
+  api-gateway:
+    build:
+      context: ../Horizon.Gateway
+      dockerfile: Dockerfile.dev
+    container_name: horizon-api-gateway
+    ports:
+      - "5181:8080"
+    volumes:
+      - ../Horizon.Gateway:/src
+      - /src/bin
+      - /src/obj
+      - nuget-cache:/root/.nuget/packages
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - DOTNET_USE_POLLING_FILE_WATCHER=1
+      - ReverseProxy__Clusters__identity-cluster__Destinations__destino-principal__Address=http://identity-api:8080/
+    depends_on:
+      - identity-api
+    networks:
+      - horizon-net
+
+networks:
+  horizon-net:
+    name: horizon-network
+    driver: bridge
+
+volumes:
+  identity_data:
+  events_data:
+  nuget-cache:
