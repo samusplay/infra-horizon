@@ -19,7 +19,7 @@ services:
       retries: 10
       start_period: 20s
 
-  # 2. Base de datos para Events API (NestJS)
+  # 2. Base de datos para Events API (C# .NET)
   events-db:
     image: postgres:15-alpine
     container_name: horizon-events-db
@@ -78,7 +78,29 @@ services:
     networks:
       - horizon-net
 
-  # 6. API Gateway (YARP) — enruta hacia identity-api
+  # 6. Events API (C# .NET) — hot-reload contra ../Horizon.Events
+  events-api:
+    build:
+      context: ../Horizon.Events
+      dockerfile: Dockerfile.dev
+    container_name: horizon-events-api
+    ports:
+      - "5006:8080"
+    volumes:
+      - ../Horizon.Events:/src
+      - /src/bin
+      - /src/obj
+      - nuget-cache:/root/.nuget/packages
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - DOTNET_USE_POLLING_FILE_WATCHER=1
+      - ConnectionStrings__DefaultConnection=Host=events-db;Port=5432;Database=horizon_events;Username=postgres;Password=postgres
+    depends_on:
+      - events-db
+    networks:
+      - horizon-net
+
+  # 7. API Gateway (YARP) — enruta hacia identity-api y events-api
   api-gateway:
     build:
       context: ../Horizon.Gateway
@@ -95,8 +117,10 @@ services:
       - ASPNETCORE_ENVIRONMENT=Development
       - DOTNET_USE_POLLING_FILE_WATCHER=1
       - ReverseProxy__Clusters__identity-cluster__Destinations__destino-principal__Address=http://identity-api:8080/
+      - ReverseProxy__Clusters__events-cluster__Destinations__destino-principal__Address=http://events-api:8080/
     depends_on:
       - identity-api
+      - events-api
     networks:
       - horizon-net
 
