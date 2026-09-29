@@ -95,6 +95,10 @@ services:
       - ASPNETCORE_ENVIRONMENT=Development
       - DOTNET_USE_POLLING_FILE_WATCHER=1
       - ConnectionStrings__DefaultConnection=Host=events-db;Port=5432;Database=horizon_events;Username=postgres;Password=postgres
+      - Aws__AccessKey=${AWS_ACCESS_KEY_ID}
+      - Aws__SecretKey=${AWS_SECRET_ACCESS_KEY}
+      - Aws__BucketName=${AWS_BUCKET_NAME}
+      - Aws__Region=${AWS_REGION}
     depends_on:
       - events-db
     networks:
