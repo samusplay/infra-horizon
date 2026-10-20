@@ -34,7 +34,7 @@ services:
     networks:
       - horizon-net
 
-  # 3. Caché y Pub/Sub para Signal Engine (Go)
+  # 3. Caché y Pub/Sub para Flow (Go)
   signal-cache:
     image: redis:7-alpine
     container_name: horizon-signal-cache
@@ -99,12 +99,14 @@ services:
       - Aws__SecretKey=${AWS_SECRET_ACCESS_KEY}
       - Aws__BucketName=${AWS_BUCKET_NAME}
       - Aws__Region=${AWS_REGION}
+      - MediaServer__StatUrl=http://media-server/stat
     depends_on:
       - events-db
+      - media-server
     networks:
       - horizon-net
 
-  # 7. API Gateway (YARP) — enruta hacia identity-api y events-api
+  # 7. API Gateway (YARP) — enruta hacia identity-api, events-api y flow
   api-gateway:
     build:
       context: ../Horizon.Gateway
@@ -122,9 +124,30 @@ services:
       - DOTNET_USE_POLLING_FILE_WATCHER=1
       - ReverseProxy__Clusters__identity-cluster__Destinations__destino-principal__Address=http://identity-api:8080/
       - ReverseProxy__Clusters__events-cluster__Destinations__destino-principal__Address=http://events-api:8080/
+      - ReverseProxy__Clusters__flow-cluster__Destinations__destino-principal__Address=http://flow:5007/
     depends_on:
       - identity-api
       - events-api
+      - flow
+    networks:
+      - horizon-net
+
+  # 8. Flow (Go) — chat en tiempo real por WebSocket
+  flow:
+    build:
+      context: ../flow
+    container_name: horizon-flow
+    ports:
+      - "5007:5007"
+    volumes:
+      - ../Horizon.Events/Security/Keys/public.pem:/keys/public.pem:ro
+    environment:
+      - REDIS_ADDR=signal-cache:6379
+      - EVENTS_URL=http://api-gateway:8080
+      - JWT_PUBLIC_KEY_PATH=/keys/public.pem
+      - ALLOWED_ORIGINS=localhost:3000
+    depends_on:
+      - signal-cache
     networks:
       - horizon-net
 
