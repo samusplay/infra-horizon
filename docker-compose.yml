@@ -106,7 +106,7 @@ services:
     networks:
       - horizon-net
 
-  # 7. API Gateway (YARP) — enruta hacia identity-api, events-api y flow
+  # 7. API Gateway (YARP) — enruta hacia identity-api, events-api, flow y channels-api
   api-gateway:
     build:
       context: ../Horizon.Gateway
@@ -125,6 +125,7 @@ services:
       - ReverseProxy__Clusters__identity-cluster__Destinations__destino-principal__Address=http://identity-api:8080/
       - ReverseProxy__Clusters__events-cluster__Destinations__destino-principal__Address=http://events-api:8080/
       - ReverseProxy__Clusters__flow-cluster__Destinations__destino-principal__Address=http://flow:5007/
+      - ReverseProxy__Clusters__channels-cluster__Destinations__destino-principal__Address=http://channels-api:8080/
     depends_on:
       - identity-api
       - events-api
@@ -151,6 +152,51 @@ services:
     networks:
       - horizon-net
 
+  # 9. Base de datos para Channels API (PostgreSQL)
+  channels-db:
+    image: postgres:15-alpine
+    container_name: horizon-channels-db
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=horizon_channels
+    ports:
+      - "5433:5432"
+    volumes:
+      - channels_pg_data:/var/lib/postgresql/data
+    networks:
+      - horizon-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d horizon_channels"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # 10. Channels API (C# .NET) — hot-reload contra ../Horizon.Channels
+  channels-api:
+    build:
+      context: ../Horizon.Channels
+      dockerfile: Dockerfile.dev
+    container_name: horizon-channels-api
+    restart: unless-stopped
+    ports:
+      - "5009:8080"
+    volumes:
+      - ../Horizon.Channels:/src
+      - /src/bin
+      - /src/obj
+      - /src/.git
+      - nuget-cache:/root/.nuget/packages
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - DOTNET_USE_POLLING_FILE_WATCHER=1
+      - ConnectionStrings__ChannelsDb=Host=channels-db;Port=5432;Database=horizon_channels;Username=postgres;Password=postgres
+    depends_on:
+      channels-db:
+        condition: service_healthy
+    networks:
+      - horizon-net
+
 networks:
   horizon-net:
     name: horizon-network
@@ -159,4 +205,5 @@ networks:
 volumes:
   identity_data:
   events_data:
+  channels_pg_data:
   nuget-cache:
