@@ -191,6 +191,9 @@ services:
       - ASPNETCORE_ENVIRONMENT=Development
       - DOTNET_USE_POLLING_FILE_WATCHER=1
       - ConnectionStrings__ChannelsDb=Host=channels-db;Port=5432;Database=horizon_channels;Username=postgres;Password=postgres
+      - AzureStorage__ConnectionString=${AZURE_STORAGE_CONNECTION_STRING}
+      - AzureStorage__BannersContainer=banners
+      - AzureStorage__RecordingsContainer=recordings
     depends_on:
       channels-db:
         condition: service_healthy
